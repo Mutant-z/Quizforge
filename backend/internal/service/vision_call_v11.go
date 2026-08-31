@@ -255,14 +255,11 @@ func (s *ImportService) performVisionProbe(ctx context.Context, llm provider.LLM
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(s.cfg.Worker.VisionTimeoutSeconds)*time.Second)
 	defer cancel()
-	resp, err := llm.Chat(probeCtx, provider.ChatRequest{Messages: []provider.ChatMessage{{Role: "user", Content: "确认你可以读取这张图片。只返回 {\"ok\":true}。", Parts: probeParts}}, JSONMode: true, MaxTokens: 64})
+	resp, err := llm.Chat(probeCtx, provider.ChatRequest{Messages: []provider.ChatMessage{{Role: "user", Content: "请读取所附图片，并仅回复 OK。", Parts: probeParts}}, MaxTokens: 128, DisableThinking: true})
 	if err != nil {
 		return err
 	}
-	var value struct {
-		OK bool `json:"ok"`
-	}
-	if json.Unmarshal([]byte(repairJSONLocally(resp.Content)), &value) != nil || !value.OK {
+	if strings.TrimSpace(resp.Content) == "" {
 		return fmt.Errorf("视觉探测响应无效")
 	}
 	return nil

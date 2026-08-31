@@ -162,6 +162,26 @@ func TestPracticeConfigurationMergesBanksAndAppliesFilters(t *testing.T) {
 	}
 }
 
+func TestPracticeRejectsAnotherUsersBank(t *testing.T) {
+	f := newPracticeFixture(t)
+	ctx := context.Background()
+	hash, err := security.HashPassword("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := f.repo.CreateUser(ctx, "practice-other", "practice-other@example.com", hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignBank, err := f.repo.CreateBank(ctx, "他人的题库", "", "private", other.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Preview(ctx, f.user.ID, CreateSessionRequest{BankIDs: []int64{foreignBank.ID}, Limit: 10}); err == nil {
+		t.Fatal("practice preview should reject another user's bank")
+	}
+}
+
 func TestPracticeExcludesQuestionsWithoutAnswersOrOptions(t *testing.T) {
 	f := newPracticeFixture(t)
 	ctx := context.Background()

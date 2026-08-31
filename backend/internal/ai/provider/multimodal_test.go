@@ -1,6 +1,11 @@
 package provider
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -34,5 +39,42 @@ func TestAnthropicBodyMultimodal(t *testing.T) {
 	source := content[1]["source"].(map[string]string)
 	if source["type"] != "base64" || source["media_type"] != "image/jpeg" || source["data"] == "" {
 		t.Fatalf("unexpected source: %#v", source)
+	}
+}
+
+func TestOpenAIProviderDisablesDeepSeekV4ThinkingForShortProbe(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
+		}
+		var payload map[string]interface{}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		thinking, ok := payload["thinking"].(map[string]interface{})
+		if !ok || thinking["type"] != "disabled" {
+			t.Fatalf("expected disabled thinking, payload=%s", body)
+		}
+		if _, ok := payload["response_format"]; ok {
+			t.Fatalf("vision probe should not require JSON output, payload=%s", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	}))
+	defer server.Close()
+
+	p := NewOpenAIProvider(Config{
+		BaseURL:    server.URL,
+		APIKey:     "test-key",
+		ChatModel:  "deepseek-v4-flash-vision-exp",
+		TimeoutSec: 2,
+	})
+	if _, err := p.Chat(context.Background(), ChatRequest{
+		Messages:        []ChatMessage{{Role: "user", Content: "请读取图片", Parts: []ContentPart{{Type: "image", MIMEType: "image/png", Data: []byte{1}}}}},
+		MaxTokens:       128,
+		DisableThinking: true,
+	}); err != nil {
+		t.Fatalf("probe request failed: %v", err)
 	}
 }

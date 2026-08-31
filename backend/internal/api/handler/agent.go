@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +17,7 @@ import (
 
 // AgentHandler AI 侧栏接口。
 type AgentHandler struct {
-	svc *service.AgentService
+	svc  *service.AgentService
 	repo *sqlite.Repository
 }
 
@@ -28,7 +29,7 @@ func NewAgentHandler(svc *service.AgentService, repo *sqlite.Repository) *AgentH
 func (h *AgentHandler) CreateSession(c *gin.Context) {
 	uid := middleware.CurrentUserID(c)
 	var req struct {
-		Title string `json:"title"`
+		Title   string                `json:"title"`
 		Context *service.AgentContext `json:"context"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -95,7 +96,10 @@ func (h *AgentHandler) Stream(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
+	var writeMu sync.Mutex
 	emit := func(evt service.AgentEvent) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		data, _ := json.Marshal(evt)
 		_, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", evt.Type, data)
 		flushSSE(c)
@@ -103,12 +107,26 @@ func (h *AgentHandler) Stream(c *gin.Context) {
 	}
 
 	// 先发 heartbeat 防超时
+	done := make(chan struct{})
+	heartbeatStopped := make(chan struct{})
+	defer func() {
+		close(done)
+		<-heartbeatStopped
+	}()
 	go func() {
+		defer close(heartbeatStopped)
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			_, _ = fmt.Fprintf(c.Writer, ": heartbeat\n\n")
-			flushSSE(c)
+		for {
+			select {
+			case <-ticker.C:
+				writeMu.Lock()
+				_, _ = fmt.Fprintf(c.Writer, ": heartbeat\n\n")
+				flushSSE(c)
+				writeMu.Unlock()
+			case <-done:
+				return
+			}
 		}
 	}()
 

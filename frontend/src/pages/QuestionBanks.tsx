@@ -14,7 +14,6 @@ export default function QuestionBanks() {
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [desc, setDesc] = useState('')
-  const [visibility, setVisibility] = useState<'public' | 'private'>('private')
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<QuestionBank | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -40,10 +39,9 @@ export default function QuestionBanks() {
     if (!name.trim()) return
     setCreating(true)
     try {
-      await client.post('/question-banks', { name, description: desc, visibility })
+      await client.post('/question-banks', { name, description: desc, visibility: 'private' })
       setName('')
       setDesc('')
-      setVisibility('private')
       setCreateOpen(false)
       load()
     } catch (e) {
@@ -150,10 +148,10 @@ export default function QuestionBanks() {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Badge
-                      tone={b.visibility === 'public' ? 'info' : 'neutral'}
+                      tone="neutral"
                       variant="subtle"
                     >
-                      {b.visibility === 'public' ? '公开题库' : '私有题库'}
+                      仅自己可见
                     </Badge>
                     <button
                       type="button"
@@ -227,32 +225,8 @@ export default function QuestionBanks() {
               placeholder="简要说明题库涵盖的考点与适用对象..."
             />
           </div>
-          <div>
-            <label className="label mb-1.5 block">可见性</label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setVisibility('private')}
-                className={`flex-1 rounded-xl border p-2.5 text-xs font-medium transition-all ${
-                  visibility === 'private'
-                    ? 'border-primary bg-primary/10 text-primary font-semibold'
-                    : 'border-border/80 bg-surface hover:bg-surface-secondary text-muted-foreground'
-                }`}
-              >
-                私有题库
-              </button>
-              <button
-                type="button"
-                onClick={() => setVisibility('public')}
-                className={`flex-1 rounded-xl border p-2.5 text-xs font-medium transition-all ${
-                  visibility === 'public'
-                    ? 'border-primary bg-primary/10 text-primary font-semibold'
-                    : 'border-border/80 bg-surface hover:bg-surface-secondary text-muted-foreground'
-                }`}
-              >
-                公开题库
-              </button>
-            </div>
+          <div className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2.5 text-xs text-muted-foreground">
+            这是你的个人题库空间，仅你自己可以查看和刷题。
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
             <Button variant="outline" onClick={() => setCreateOpen(false)}>

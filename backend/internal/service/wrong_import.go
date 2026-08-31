@@ -999,7 +999,7 @@ func (s *WrongImportService) Confirm(ctx context.Context, session *domain.WrongI
 
 func (s *WrongImportService) resolveTargetBank(ctx context.Context, session *domain.WrongImportSession, targetBankID *int64) (*domain.QuestionBank, error) {
 	if targetBankID != nil && *targetBankID > 0 {
-		bank, err := s.repo.GetBank(ctx, *targetBankID)
+		bank, err := s.repo.GetBankForUser(ctx, *targetBankID, session.UserID)
 		if err != nil {
 			return nil, errors.New("TARGET_BANK_NOT_FOUND")
 		}
@@ -1007,7 +1007,7 @@ func (s *WrongImportService) resolveTargetBank(ctx context.Context, session *dom
 		return bank, nil
 	}
 	if session.TargetBankID != nil && *session.TargetBankID > 0 {
-		if bank, err := s.repo.GetBank(ctx, *session.TargetBankID); err == nil {
+		if bank, err := s.repo.GetBankForUser(ctx, *session.TargetBankID, session.UserID); err == nil {
 			return bank, nil
 		}
 	}

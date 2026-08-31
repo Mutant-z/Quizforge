@@ -30,6 +30,13 @@ type StoredProvider struct {
 	SupportsVision bool   `json:"supports_vision"`
 }
 
+// ResolvedProvider 是已校验归属并解密后的 Provider 配置。
+// API 层只在服务端内部使用 APIKey，绝不会把它序列化返回给客户端。
+type ResolvedProvider struct {
+	StoredProvider
+	APIKey string
+}
+
 // Registry 从 DB 读取 Provider 配置并构造实例。
 type Registry struct {
 	db    *sql.DB
@@ -243,6 +250,36 @@ func (r *Registry) Get(ctx context.Context, id int64) (*StoredProvider, error) {
 	return &p, nil
 }
 
+// Resolve 按当前用户读取 Provider 并解密 API Key。
+// user_id=0 仅用于系统内部/全局配置场景；普通用户不能通过 ID 读取其他用户的密钥。
+func (r *Registry) Resolve(ctx context.Context, id int64) (*ResolvedProvider, error) {
+	userID := observability.UserID(ctx)
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, COALESCE(user_id, 0), COALESCE(provider_type, 'llm'), name, protocol, base_url, api_key_encrypted,
+		       COALESCE(model_name, chat_model, embedding_model, rerank_model, ''), is_default, COALESCE(supports_vision, 0)
+		FROM ai_providers
+		WHERE id = ? AND (user_id = ? OR ? = 0)`, id, userID, userID)
+
+	var resolved ResolvedProvider
+	var enc string
+	var isDefault, supportsVision int
+	if err := row.Scan(
+		&resolved.ID, &resolved.UserID, &resolved.Type, &resolved.Name, &resolved.Protocol,
+		&resolved.BaseURL, &enc, &resolved.ModelName, &isDefault, &supportsVision,
+	); err != nil {
+		return nil, err
+	}
+	key, err := r.crypt.Decrypt(enc)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt provider key: %w", err)
+	}
+	resolved.IsDefault = isDefault == 1
+	resolved.SupportsVision = supportsVision == 1
+	resolved.APIKey = key
+	resolved.APIKeyMasked = security.MaskKey(key)
+	return &resolved, nil
+}
+
 // Default 返回指定类型（llm, embedding, rerank）的默认 Provider 配置（含解密 Key）。
 // 优先按当前用户的默认配置 -> 当前用户的首个配置 -> 系统全局(user_id=0)默认配置 -> 系统全局首个配置 回退。
 func (r *Registry) Default(ctx context.Context, providerType string) (*Config, error) {
@@ -336,10 +373,10 @@ func (r *Registry) Default(ctx context.Context, providerType string) (*Config, e
 
 // NewLLM 根据存储配置构造 LLM Provider。
 func (r *Registry) NewLLM(ctx context.Context, storedID int64) (LLMProvider, error) {
-	var p *StoredProvider
+	var p *ResolvedProvider
 	var err error
 	if storedID > 0 {
-		p, err = r.Get(ctx, storedID)
+		p, err = r.Resolve(ctx, storedID)
 	} else {
 		cfg, err2 := r.Default(ctx, TypeLLM)
 		if err2 != nil {
@@ -350,17 +387,8 @@ func (r *Registry) NewLLM(ctx context.Context, storedID int64) (LLMProvider, err
 	if err != nil {
 		return nil, err
 	}
-	row := r.db.QueryRowContext(ctx, `SELECT api_key_encrypted FROM ai_providers WHERE id = ?`, p.ID)
-	var enc string
-	if err := row.Scan(&enc); err != nil {
-		return nil, err
-	}
-	key, err := r.crypt.Decrypt(enc)
-	if err != nil {
-		return nil, err
-	}
 	cfg := Config{
-		Name: p.Name, Protocol: p.Protocol, BaseURL: p.BaseURL, APIKey: key,
+		Name: p.Name, Protocol: p.Protocol, BaseURL: p.BaseURL, APIKey: p.APIKey,
 		ChatModel: p.ModelName, TimeoutSec: 180, SupportsVision: p.SupportsVision,
 	}
 	return NewFromConfig(cfg)

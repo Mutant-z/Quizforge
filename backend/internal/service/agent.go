@@ -59,12 +59,12 @@ const agentSystemPrompt = `你是 QuizTrace 的 AI 学习助手，帮助用户�
 
 // AgentContext 会话上下文（当前题等）。
 type AgentContext struct {
-	QuestionID   int64  `json:"question_id,omitempty"`
-	UserAnswer   string `json:"user_answer,omitempty"`
-	SessionID    int64  `json:"session_id,omitempty"`
-	BankID       int64  `json:"bank_id,omitempty"`
-	SubjectID    int64  `json:"subject_id,omitempty"`
-	ChapterID    int64  `json:"chapter_id,omitempty"`
+	QuestionID int64  `json:"question_id,omitempty"`
+	UserAnswer string `json:"user_answer,omitempty"`
+	SessionID  int64  `json:"session_id,omitempty"`
+	BankID     int64  `json:"bank_id,omitempty"`
+	SubjectID  int64  `json:"subject_id,omitempty"`
+	ChapterID  int64  `json:"chapter_id,omitempty"`
 }
 
 // CreateSession 新建会话。
@@ -201,8 +201,8 @@ func (s *AgentService) parseToolCalls(content string) ([]ToolCallRequest, string
 	trimmed := strings.TrimSpace(content)
 	if strings.HasPrefix(trimmed, "{") && strings.Contains(trimmed, "tool") {
 		var wrapper struct {
-			Tool  ToolCallRequest `json:"tool"`
-			Answer string         `json:"answer"`
+			Tool   ToolCallRequest `json:"tool"`
+			Answer string          `json:"answer"`
 		}
 		if err := json.Unmarshal([]byte(trimmed), &wrapper); err == nil && wrapper.Tool.Name != "" {
 			return []ToolCallRequest{wrapper.Tool}, wrapper.Answer
@@ -254,6 +254,7 @@ func (s *AgentService) streamAnswer(ctx context.Context, sessionID int64, llm pr
 	emit(AgentEvent{Type: "agent.completed"})
 	return nil
 }
+
 // ToolCallRequest 工具调用。
 type ToolCallRequest struct {
 	Name      string `json:"name"`
@@ -290,6 +291,9 @@ func (s *AgentService) executeTool(ctx context.Context, userID int64, agctx Agen
 		if err != nil {
 			return "获取题目失败"
 		}
+		if _, err := s.repo.GetBankForUser(ctx, q.BankID, userID); err != nil {
+			return "获取题目失败"
+		}
 		b, _ := json.Marshal(map[string]interface{}{"id": q.ID, "stem": q.Stem, "options": q.Options, "type": q.Type, "answer": q.Answer})
 		return string(b)
 	case "get_question_analysis":
@@ -301,13 +305,16 @@ func (s *AgentService) executeTool(ctx context.Context, userID int64, agctx Agen
 		if err != nil {
 			return "题目不存在"
 		}
+		if _, err := s.repo.GetBankForUser(ctx, q.BankID, userID); err != nil {
+			return "题目不存在"
+		}
 		return q.OriginalAnalysis + "\n" + q.AIEnhancedAnalysis
 	case "search_rag":
 		query := getStr("query")
 		if query == "" {
 			query = "当前题目相关知识点"
 		}
-		req := SearchRequest{Query: query, TopK: 5, UseVector: true}
+		req := SearchRequest{Query: query, TopK: 5, UseVector: true, UserID: userID}
 		if agctx.ChapterID > 0 {
 			req.ChapterID = &agctx.ChapterID
 		}
@@ -361,7 +368,7 @@ func (s *AgentService) executeTool(ctx context.Context, userID int64, agctx Agen
 		if query == "" {
 			query = "相似题目"
 		}
-		req := SearchRequest{Query: query, TopK: 5, SourceType: "question"}
+		req := SearchRequest{Query: query, TopK: 5, SourceType: "question", UserID: userID}
 		if agctx.ChapterID > 0 {
 			req.ChapterID = &agctx.ChapterID
 		}

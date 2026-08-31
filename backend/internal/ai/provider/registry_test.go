@@ -138,3 +138,32 @@ func TestGlobalFallback(t *testing.T) {
 		t.Errorf("expected fallback to global model, got %+v", cfg)
 	}
 }
+
+func TestResolveProviderIsUserScopedAndDecryptsKeyServerSide(t *testing.T) {
+	db, reg := setupTestDB(t)
+	defer db.Close()
+
+	ctxUser1 := observability.WithUserID(context.Background(), 201)
+	ctxUser2 := observability.WithUserID(context.Background(), 202)
+	ctxSystem := observability.WithUserID(context.Background(), 0)
+
+	saved, err := reg.Save(ctxUser1, provider.TypeLLM, "User1", "openai", "http://127.0.0.1:1/v1", "sk-secret", "test-model", true)
+	if err != nil {
+		t.Fatalf("save provider: %v", err)
+	}
+
+	resolved, err := reg.Resolve(ctxUser1, saved.ID)
+	if err != nil {
+		t.Fatalf("resolve own provider: %v", err)
+	}
+	if resolved.APIKey != "sk-secret" || resolved.APIKeyMasked != "sk-****cret" {
+		t.Fatalf("resolved provider key mismatch: masked=%q key=%q", resolved.APIKeyMasked, resolved.APIKey)
+	}
+
+	if _, err := reg.Resolve(ctxUser2, saved.ID); err == nil {
+		t.Fatal("a user must not resolve another user's provider key")
+	}
+	if resolvedSystem, err := reg.Resolve(ctxSystem, saved.ID); err != nil || resolvedSystem.APIKey != "sk-secret" {
+		t.Fatalf("system context should resolve provider: resolved=%+v err=%v", resolvedSystem, err)
+	}
+}

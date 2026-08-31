@@ -45,10 +45,21 @@ func (h *ImportAgentHandler) Create(c *gin.Context) {
 	userID := middleware.CurrentUserID(c)
 	if req.BankID == nil {
 		if user, getErr := h.repo.GetUserByID(c.Request.Context(), userID); getErr == nil && user.DefaultBankID > 0 {
-			req.BankID = &user.DefaultBankID
-		} else if banks, _, listErr := h.repo.ListBanks(c.Request.Context(), 1, 1); listErr == nil && len(banks) > 0 {
-			id := banks[0].ID
-			req.BankID = &id
+			if _, bankErr := h.repo.GetBankForUser(c.Request.Context(), user.DefaultBankID, userID); bankErr == nil {
+				req.BankID = &user.DefaultBankID
+			}
+		}
+		if req.BankID == nil {
+			if banks, _, listErr := h.repo.ListBanksForUser(c.Request.Context(), userID, 1, 1, ""); listErr == nil && len(banks) > 0 {
+				id := banks[0].ID
+				req.BankID = &id
+			}
+		}
+	}
+	if req.BankID != nil {
+		if _, err := h.repo.GetBankForUser(c.Request.Context(), *req.BankID, userID); err != nil {
+			api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题库不存在")
+			return
 		}
 	}
 	session, err := h.repo.CreateImportSession(c.Request.Context(), userID, req.BankID, req.Title)

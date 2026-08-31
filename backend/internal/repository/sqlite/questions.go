@@ -156,6 +156,13 @@ func (r *Repository) ListQuestionIDs(ctx context.Context, f QuestionFilter) ([]i
 func questionFilterWhere(f QuestionFilter) ([]string, []interface{}) {
 	where := []string{"1=1"}
 	args := []interface{}{}
+	if f.BankOwnerID > 0 {
+		where = append(where, `EXISTS (
+			SELECT 1 FROM question_banks owner_bank
+			WHERE owner_bank.id = q.bank_id AND owner_bank.created_by = ?
+		)`)
+		args = append(args, f.BankOwnerID)
+	}
 	if f.RequireAnswer || f.RequireOptions {
 		for _, condition := range playableQuestionConditions("q", f.RequireAnswer, f.RequireOptions) {
 			where = append(where, condition)
@@ -206,6 +213,7 @@ func questionFilterWhere(f QuestionFilter) ([]string, []interface{}) {
 type QuestionFilter struct {
 	BankID         *int64
 	BankIDs        []int64
+	BankOwnerID    int64 // 仅查询指定用户创建的题库
 	SubjectID      *int64
 	ChapterID      *int64
 	Type           string

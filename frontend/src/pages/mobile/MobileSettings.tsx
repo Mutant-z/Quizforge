@@ -31,6 +31,15 @@ import {
   Zap,
 } from 'lucide-react'
 
+function isLoopbackBaseURL(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase()
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
 export default function MobileSettings() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
@@ -164,7 +173,7 @@ export default function MobileSettings() {
       const resp = await client.post(`/providers/${p.id}/test`)
       const res = resp.data.data
       if (res.ok) {
-        showToast(`连通性测试成功！耗时 ${res.latency || 0}ms`, 'success')
+        showToast(`连通性测试成功！耗时 ${res.latency_ms || 0}ms`, 'success')
       } else {
         showToast(`测试失败: ${res.message}`, 'error')
       }
@@ -453,6 +462,11 @@ export default function MobileSettings() {
               placeholder="https://api.deepseek.com"
               required
             />
+            {isLoopbackBaseURL(form.base_url) && (
+              <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                局域网访问时，模型请求由后端电脑发起。若 Ollama 在其他设备，请填写其局域网 IP，并开启局域网访问。
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import client, { errMsg } from '@/api/client'
 import { uploadWrongImportImage, wrongImportApi } from '@/api/wrongImport'
+import { createUUID } from '@/utils/uuid'
 import { Badge, Button, IconButton, Modal, Spinner } from '@/components/ui'
 import {
   AlertCircle,
@@ -541,7 +542,7 @@ export default function WrongImportWorkspace() {
       if (!files.length || !selectedId) return
       setBusy('upload')
       try {
-        const batchId = crypto.randomUUID()
+        const batchId = createUUID()
         for (const [index, file] of files.entries()) {
           await uploadWrongImportImage(selectedId, file, (sent, total) =>
             setUploadProgress((current) => ({ ...current, [file.name]: Math.round((sent / total) * 100) })),

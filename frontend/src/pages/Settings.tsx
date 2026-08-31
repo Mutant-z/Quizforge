@@ -33,6 +33,15 @@ interface PresetConfig {
   tag?: string
 }
 
+function isLoopbackBaseURL(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase()
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
 const PRESETS: Record<ProviderType, PresetConfig[]> = {
   llm: [
     {
@@ -43,6 +52,15 @@ const PRESETS: Record<ProviderType, PresetConfig[]> = {
       model_name: 'deepseek-chat',
       supports_vision: false,
       tag: '高性价比',
+    },
+    {
+      label: 'DeepSeek V4 视觉',
+      name: 'DeepSeek-V4 Flash Vision',
+      protocol: 'openai',
+      base_url: 'https://api.deepseek.com',
+      model_name: 'deepseek-v4-flash-vision-exp',
+      supports_vision: true,
+      tag: '多模态视觉',
     },
     {
       label: '硅基流动 DeepSeek',
@@ -300,15 +318,7 @@ export default function Settings() {
   const testCardProvider = async (p: ProviderConfig) => {
     setCardTestingId(p.id)
     try {
-      const resp = await client.post('/providers/test', {
-        provider_type: p.provider_type,
-        name: p.name,
-        protocol: p.protocol,
-        base_url: p.base_url,
-        api_key: '',
-        model_name: p.model_name,
-        supports_vision: p.supports_vision,
-      })
+      const resp = await client.post(`/providers/${p.id}/test`)
       const data = resp.data.data
       setCardTestStatus((prev) => ({
         ...prev,
@@ -969,6 +979,11 @@ export default function Settings() {
               onChange={(e) => update({ base_url: e.target.value })}
               placeholder="https://api.deepseek.com 或 https://api.siliconflow.cn/v1"
             />
+            {isLoopbackBaseURL(form.base_url) && (
+              <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                局域网提示：模型请求由 QuizTrace 后端发起，localhost 指向运行后端的电脑；如果 Ollama 在其他设备，请填写该设备的局域网 IP，并确保服务允许局域网访问。
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -1027,7 +1042,7 @@ export default function Settings() {
                 <div className="space-y-0.5">
                   <span className="block font-semibold">启用图片输入与多模态视觉 (Vision)</span>
                   <span className="block text-[11px] text-muted-foreground leading-relaxed">
-                    测试连通性将发送 1×1 验证图；错题 OCR 与视觉 PDF 智能导入将使用该默认模型。
+                    测试连通性将发送一张标准验证图；错题 OCR 与视觉 PDF 智能导入将使用该默认模型。
                   </span>
                 </div>
               </label>

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/quiztrace/quiztrace/internal/api"
+	"github.com/quiztrace/quiztrace/internal/api/middleware"
 	"github.com/quiztrace/quiztrace/internal/config"
 	"github.com/quiztrace/quiztrace/internal/repository/sqlite"
 	"github.com/quiztrace/quiztrace/internal/service"
@@ -25,6 +26,9 @@ func (h *RAGHandler) Search(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		api.Fail(c, http.StatusBadRequest, api.ErrInvalidRequest, "缺少检索内容")
 		return
+	}
+	if role, _ := c.Get("role"); role != "admin" {
+		req.UserID = middleware.CurrentUserID(c)
 	}
 	res, err := h.svc.Search(c.Request.Context(), req)
 	if err != nil {

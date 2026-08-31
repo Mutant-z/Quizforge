@@ -159,6 +159,12 @@ func (h *UploadHandler) Complete(c *gin.Context) {
 			req.SessionID = parseID(c.Param("id"))
 		}
 	}
+	if req.BankID != nil {
+		if _, err := h.repo.GetBankForUser(c.Request.Context(), *req.BankID, uid); err != nil {
+			api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题库不存在")
+			return
+		}
+	}
 	dir := filepath.Join(h.cfg.Upload.Root, "uploads", uploadID)
 	mergedPath := filepath.Join(dir, "merged")
 	if err := mergeChunks(dir, mergedPath, req.ChunkCount); err != nil {
@@ -315,9 +321,11 @@ func (h *UploadHandler) enqueueImport(ctx context.Context, importJobID int64, ru
 func (h *UploadHandler) resolveDefaultBank(ctx context.Context, userID int64) *int64 {
 	user, err := h.repo.GetUserByID(ctx, userID)
 	if err == nil && user.DefaultBankID > 0 {
-		return &user.DefaultBankID
+		if _, bankErr := h.repo.GetBankForUser(ctx, user.DefaultBankID, userID); bankErr == nil {
+			return &user.DefaultBankID
+		}
 	}
-	banks, _, err := h.repo.ListBanks(ctx, 1, 1)
+	banks, _, err := h.repo.ListBanksForUser(ctx, userID, 1, 1, "")
 	if err == nil && len(banks) > 0 {
 		id := banks[0].ID
 		return &id

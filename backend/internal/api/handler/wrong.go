@@ -23,12 +23,25 @@ func NewWrongHandler(repo *sqlite.Repository, scheduler review.ReviewScheduler) 
 	return &WrongHandler{repo: repo, scheduler: scheduler}
 }
 
+func (h *WrongHandler) questionAccessible(c *gin.Context, questionID int64) bool {
+	q, err := h.repo.GetQuestion(c.Request.Context(), questionID)
+	if err != nil {
+		return false
+	}
+	if isAdmin(c) {
+		return true
+	}
+	_, err = h.repo.GetBankForUser(c.Request.Context(), q.BankID, middleware.CurrentUserID(c))
+	return err == nil
+}
+
 func (h *WrongHandler) List(c *gin.Context) {
 	uid := middleware.CurrentUserID(c)
 	f := sqlite.WrongFilter{
-		UserID:   uid,
-		Page:     parseInt(c.Query("page"), 1),
-		PageSize: parseInt(c.Query("page_size"), 20),
+		UserID:      uid,
+		BankOwnerID: uid,
+		Page:        parseInt(c.Query("page"), 1),
+		PageSize:    parseInt(c.Query("page_size"), 20),
 	}
 	if v := c.Query("subject_id"); v != "" {
 		id := parseID(v)
@@ -60,7 +73,7 @@ func (h *WrongHandler) List(c *gin.Context) {
 
 func (h *WrongHandler) Due(c *gin.Context) {
 	uid := middleware.CurrentUserID(c)
-	f := sqlite.WrongFilter{UserID: uid, DueOnly: true, SortByDue: true, Page: 1, PageSize: 100}
+	f := sqlite.WrongFilter{UserID: uid, BankOwnerID: uid, DueOnly: true, SortByDue: true, Page: 1, PageSize: 100}
 	list, _, err := h.repo.ListWrongQuestions(c.Request.Context(), f)
 	if err != nil {
 		api.Fail(c, http.StatusInternalServerError, api.ErrInternal, "查询待复习失败")
@@ -73,6 +86,10 @@ func (h *WrongHandler) Due(c *gin.Context) {
 func (h *WrongHandler) AddManual(c *gin.Context) {
 	uid := middleware.CurrentUserID(c)
 	qid := parseID(c.Param("id"))
+	if !h.questionAccessible(c, qid) {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
+		return
+	}
 	w, err := h.repo.UpsertWrongQuestion(c.Request.Context(), uid, qid)
 	if err != nil {
 		api.Fail(c, http.StatusInternalServerError, api.ErrInternal, "加入错题本失败")
@@ -119,15 +136,19 @@ func (h *WrongHandler) ReviewSubmit(c *gin.Context) {
 		api.Fail(c, http.StatusForbidden, api.ErrUnauthorized, "无权访问")
 		return
 	}
+	if !h.questionAccessible(c, w.QuestionID) {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
+		return
+	}
 
 	input := review.ReviewInput{
-		WrongCount:    w.WrongCount,
-		CorrectCount:  w.CorrectCount,
-		ReviewCount:   w.ReviewCount,
-		MasteryScore:  w.MasteryScore,
-		IntervalDays:  w.IntervalDays,
-		Difficulty:    3,
-		Result:        req.Result,
+		WrongCount:   w.WrongCount,
+		CorrectCount: w.CorrectCount,
+		ReviewCount:  w.ReviewCount,
+		MasteryScore: w.MasteryScore,
+		IntervalDays: w.IntervalDays,
+		Difficulty:   3,
+		Result:       req.Result,
 	}
 	if w.LastReviewAt != nil {
 		input.LastReviewAt = *w.LastReviewAt

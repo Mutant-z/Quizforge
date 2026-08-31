@@ -35,6 +35,14 @@ func (s *QuestionService) DeleteBank(ctx context.Context, id int64) error {
 	return s.repo.DeleteBank(ctx, id)
 }
 
+// DeleteBankForUser 删除学习者自己的题库。管理员使用 DeleteBank 保留全局管理能力。
+func (s *QuestionService) DeleteBankForUser(ctx context.Context, id, userID int64) error {
+	if _, err := s.repo.GetBankForUser(ctx, id, userID); err != nil {
+		return api.NotFound("题库不存在")
+	}
+	return s.repo.DeleteBank(ctx, id)
+}
+
 func (s *QuestionService) CreateSubject(ctx context.Context, bankID int64, name string) (*domain.Subject, error) {
 	if name == "" {
 		return nil, api.InvalidRequest("科目名称不能为空")

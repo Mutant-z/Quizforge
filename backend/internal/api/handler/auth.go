@@ -113,8 +113,8 @@ func (h *UserHandler) Me(c *gin.Context) {
 }
 
 type updateMeRequest struct {
-	Avatar  string `json:"avatar"`
-	Bio     string `json:"bio"`
+	Avatar        string `json:"avatar"`
+	Bio           string `json:"bio"`
 	DefaultBankID *int64 `json:"default_bank_id"`
 }
 
@@ -124,6 +124,12 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		api.Fail(c, http.StatusBadRequest, api.ErrInvalidRequest, "参数不合法")
 		return
+	}
+	if req.DefaultBankID != nil && !isAdmin(c) {
+		if _, err := h.repo.GetBankForUser(c.Request.Context(), *req.DefaultBankID, uid); err != nil {
+			api.Fail(c, http.StatusNotFound, api.ErrNotFound, "默认题库不存在")
+			return
+		}
 	}
 	user, err := h.repo.UpdateUser(c.Request.Context(), uid, req.Avatar, req.Bio, req.DefaultBankID)
 	if err != nil {
@@ -154,15 +160,15 @@ func (h *UserHandler) UpdateSettings(c *gin.Context) {
 
 func toPublicUser(u *domain.User) gin.H {
 	return gin.H{
-		"id":                 u.ID,
-		"username":           u.Username,
-		"email":              maskEmail(u.Email),
-		"role":               u.Role,
-		"avatar":             u.Avatar,
-		"bio":                u.Bio,
-		"default_bank_id":    u.DefaultBankID,
-		"study_preferences":  u.StudyPreferences,
-		"created_at":         u.CreatedAt,
+		"id":                u.ID,
+		"username":          u.Username,
+		"email":             maskEmail(u.Email),
+		"role":              u.Role,
+		"avatar":            u.Avatar,
+		"bio":               u.Bio,
+		"default_bank_id":   u.DefaultBankID,
+		"study_preferences": u.StudyPreferences,
+		"created_at":        u.CreatedAt,
 	}
 }
 

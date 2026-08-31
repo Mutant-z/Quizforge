@@ -113,7 +113,11 @@ func registerRAGRoutes(g *gin.RouterGroup, deps *Deps, cfg *config.Config) {
 	search := g.Group("/search", middleware.Auth(deps.Token))
 	search.GET("/questions", func(c *gin.Context) {
 		q := c.Query("q")
-		res, err := svc.Search(c.Request.Context(), service.SearchRequest{Query: q, TopK: 10})
+		request := service.SearchRequest{Query: q, TopK: 10}
+		if role, _ := c.Get("role"); role != "admin" {
+			request.UserID = middleware.CurrentUserID(c)
+		}
+		res, err := svc.Search(c.Request.Context(), request)
 		if err != nil {
 			handler.RespondJSON(c, gin.H{"items": []interface{}{}})
 			return
@@ -133,6 +137,8 @@ func registerAgentRoutes(g *gin.RouterGroup, deps *Deps, cfg *config.Config) {
 	a.GET("/sessions/:id", h.GetSession)
 	a.DELETE("/sessions/:id", h.DeleteSession)
 	a.POST("/sessions/:id/messages", h.Stream)
+	// Keep the old mobile client path working while clients update to /messages.
+	a.POST("/sessions/:id/chat", h.Stream)
 	a.GET("/sessions/:id/stream", h.Stream)
 }
 
@@ -147,6 +153,7 @@ func registerProviderRoutes(g *gin.RouterGroup, deps *Deps, cfg *config.Config) 
 	p.POST("/:id/default", h.SetDefault)
 	p.DELETE("/:id", h.Delete)
 	p.POST("/test", h.Test)
+	p.POST("/:id/test", h.TestStored)
 }
 
 func registerAdminRoutes(g *gin.RouterGroup, deps *Deps, cfg *config.Config) {

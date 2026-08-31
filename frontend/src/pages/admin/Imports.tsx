@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import client, { API_BASE, errMsg, refreshAccessToken } from '@/api/client'
+import client, { API_BASE, authFetch as authenticatedFetch, errMsg, refreshAccessToken, responseErrorMessage } from '@/api/client'
 import { Badge, Button, EmptyState, IconButton, Progress, Spinner } from '@/components/ui'
 import {
   AlertCircle,
@@ -1066,7 +1066,7 @@ export default function AdminImports() {
       // request being accepted without a visible assistant reply.
       const summary = await client.get(`/import-agent/sessions/${sessionId}`)
       const currentDetail = summary.data.data as SessionDetail
-      const response = await fetch(`${API_BASE}/import-agent/sessions/${sessionId}/messages/stream`, {
+      const response = await authenticatedFetch(`${API_BASE}/import-agent/sessions/${sessionId}/messages/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1078,7 +1078,7 @@ export default function AdminImports() {
           last_event_id: lastEventId.current,
         }),
       })
-      if (!response.ok) throw new Error(`消息发送失败：${response.status}`)
+      if (!response.ok) throw new Error(await responseErrorMessage(response, '消息发送失败'))
       const raw = await response.text()
       const streamError = raw
         .split('\n')

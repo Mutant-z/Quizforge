@@ -17,8 +17,8 @@ Base: `/api/v1` · 统一响应 `{data, error, request_id}` · 统一分页 `{it
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET/POST | /question-banks | 列表 / 创建 |
-| GET | /question-banks/:id | 详情（含题目数） |
+| GET/POST | /question-banks | 列表 / 创建（学习者仅返回本人创建的题库；管理员可查看全部） |
+| GET | /question-banks/:id | 详情（含题目数，按角色校验题库归属） |
 | GET/POST | /question-banks/:id/subjects | 科目列表 / 创建 |
 | GET | /subjects/:subject_id/chapters | 章节树 |
 | POST | /subjects/:subject_id/chapters | 创建章节 {name, parent_id?, level} |
@@ -134,7 +134,8 @@ Base: `/api/v1` · 统一响应 `{data, error, request_id}` · 统一分页 `{it
 | POST | /admin/conflicts/:id/resolve | 解决冲突 |
 | GET | /admin/jobs?status= | 任务队列 |
 | GET/POST/PUT/DELETE | /providers(/:id) | 模型 Provider 管理 |
-| POST | /providers/test | 测试连接 |
+| POST | /providers/test | 测试未保存的 Provider 连接（请求体包含配置与 API Key） |
+| POST | /providers/:id/test | 测试已保存的 Provider 连接（服务端按当前用户读取密钥） |
 
 ## 错误码
 

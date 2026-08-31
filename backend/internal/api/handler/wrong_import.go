@@ -74,7 +74,14 @@ func (h *WrongImportHandler) Create(c *gin.Context) {
 	if title == "" {
 		title = "错题导入"
 	}
-	session, err := h.repo.CreateWrongImportSession(c.Request.Context(), middleware.CurrentUserID(c), &title, req.TargetBankID)
+	userID := middleware.CurrentUserID(c)
+	if req.TargetBankID != nil {
+		if _, err := h.repo.GetBankForUser(c.Request.Context(), *req.TargetBankID, userID); err != nil {
+			api.Fail(c, http.StatusNotFound, api.ErrNotFound, "目标题库不存在")
+			return
+		}
+	}
+	session, err := h.repo.CreateWrongImportSession(c.Request.Context(), userID, &title, req.TargetBankID)
 	if err != nil {
 		api.FailDetail(c, http.StatusInternalServerError, api.ErrInternal, "创建会话失败", err.Error())
 		return

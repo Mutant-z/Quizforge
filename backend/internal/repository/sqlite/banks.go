@@ -28,10 +28,20 @@ func (r *Repository) CreateBank(ctx context.Context, name, description, visibili
 }
 
 func (r *Repository) GetBank(ctx context.Context, id int64) (*domain.QuestionBank, error) {
+	return r.getBankWhere(ctx, `b.id = ?`, id)
+}
+
+// GetBankForUser 仅返回指定用户创建的题库。管理员或内部任务需要跨用户读取时，
+// 应继续显式使用 GetBank，避免把内部数据处理误绑定到请求用户。
+func (r *Repository) GetBankForUser(ctx context.Context, id, userID int64) (*domain.QuestionBank, error) {
+	return r.getBankWhere(ctx, `b.id = ? AND b.created_by = ?`, id, userID)
+}
+
+func (r *Repository) getBankWhere(ctx context.Context, where string, args ...interface{}) (*domain.QuestionBank, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT b.id, b.name, b.description, b.cover, b.visibility, b.status, b.question_count, b.created_by, b.created_at, b.updated_at,
 		       (SELECT COUNT(*) FROM subjects s WHERE s.bank_id = b.id) AS subject_count
-		FROM question_banks b WHERE b.id = ?`, id)
+		FROM question_banks b WHERE `+where, args...)
 	var b domain.QuestionBank
 	var desc, cover sql.NullString
 	var createdBy sql.NullInt64
@@ -53,15 +63,31 @@ func (r *Repository) ListBanks(ctx context.Context, page, pageSize int) ([]*doma
 
 // ListBanksFiltered 分页查询题库，并支持名称/描述搜索。
 func (r *Repository) ListBanksFiltered(ctx context.Context, page, pageSize int, keyword string) ([]*domain.QuestionBank, int64, error) {
-	where := "1=1"
+	return r.listBanksFiltered(ctx, page, pageSize, keyword, nil)
+}
+
+// ListBanksForUser 分页查询用户自己的题库。visibility 不参与普通学习者的
+// 数据范围判断：题库归属由 created_by 决定，避免公开标记造成跨用户泄露。
+func (r *Repository) ListBanksForUser(ctx context.Context, userID int64, page, pageSize int, keyword string) ([]*domain.QuestionBank, int64, error) {
+	return r.listBanksFiltered(ctx, page, pageSize, keyword, &userID)
+}
+
+func (r *Repository) listBanksFiltered(ctx context.Context, page, pageSize int, keyword string, ownerID *int64) ([]*domain.QuestionBank, int64, error) {
+	whereParts := []string{"1=1"}
 	countArgs := []interface{}{}
 	queryArgs := []interface{}{}
+	if ownerID != nil {
+		whereParts = append(whereParts, "b.created_by = ?")
+		countArgs = append(countArgs, *ownerID)
+		queryArgs = append(queryArgs, *ownerID)
+	}
 	if keyword = strings.TrimSpace(keyword); keyword != "" {
-		where = "(b.name LIKE ? OR b.description LIKE ?)"
+		whereParts = append(whereParts, "(b.name LIKE ? OR b.description LIKE ?)")
 		pattern := "%" + keyword + "%"
 		countArgs = append(countArgs, pattern, pattern)
 		queryArgs = append(queryArgs, pattern, pattern)
 	}
+	where := strings.Join(whereParts, " AND ")
 	var total int64
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM question_banks b WHERE `+where, countArgs...).Scan(&total); err != nil {
 		return nil, 0, err
@@ -249,6 +275,22 @@ func (r *Repository) GetSubject(ctx context.Context, id int64) (*domain.Subject,
 	return &s, nil
 }
 
+// GetSubjectForUser 仅返回用户自己题库下的科目。
+func (r *Repository) GetSubjectForUser(ctx context.Context, id, userID int64) (*domain.Subject, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT s.id, s.bank_id, s.name, s.sort_order, s.created_at
+		FROM subjects s
+		JOIN question_banks b ON b.id = s.bank_id
+		WHERE s.id = ? AND b.created_by = ?`, id, userID)
+	var s domain.Subject
+	var createdAt string
+	if err := row.Scan(&s.ID, &s.BankID, &s.Name, &s.SortOrder, &createdAt); err != nil {
+		return nil, err
+	}
+	s.CreatedAt = parseSQLiteTime(createdAt)
+	return &s, nil
+}
+
 func (r *Repository) ListSubjects(ctx context.Context, bankID int64) ([]*domain.Subject, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, bank_id, name, sort_order, created_at FROM subjects WHERE bank_id = ? ORDER BY sort_order, id`, bankID)
@@ -287,6 +329,18 @@ func (r *Repository) GetChapter(ctx context.Context, id int64) (*domain.Chapter,
 		SELECT c.id, c.subject_id, c.parent_id, c.name, c.normalized_name, c.level, c.sort_order, c.status,
 		       (SELECT COUNT(*) FROM canonical_questions q WHERE q.chapter_id = c.id) AS question_count
 		FROM chapters c WHERE c.id = ?`, id)
+	return scanChapter(row)
+}
+
+// GetChapterForUser 仅返回用户自己题库下的章节。
+func (r *Repository) GetChapterForUser(ctx context.Context, id, userID int64) (*domain.Chapter, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT c.id, c.subject_id, c.parent_id, c.name, c.normalized_name, c.level, c.sort_order, c.status,
+		       (SELECT COUNT(*) FROM canonical_questions q WHERE q.chapter_id = c.id) AS question_count
+		FROM chapters c
+		JOIN subjects s ON s.id = c.subject_id
+		JOIN question_banks b ON b.id = s.bank_id
+		WHERE c.id = ? AND b.created_by = ?`, id, userID)
 	return scanChapter(row)
 }
 

@@ -37,6 +37,7 @@ type SearchRequest struct {
 	SourceType string `json:"source_type"`
 	TopK       int    `json:"top_k"`
 	UseVector  bool   `json:"use_vector"`
+	UserID     int64  `json:"-"` // 普通用户检索范围，由认证上下文注入
 }
 
 // SearchResult 检索结果。
@@ -53,7 +54,13 @@ func (s *RAGService) Search(ctx context.Context, req SearchRequest) (*SearchResu
 	}
 
 	// 1. FTS 关键词检索（trigram）
-	ftsItems, err := s.repo.SearchFTS(ctx, req.Query, s.cfg.RAG.FTSTopK, req.BankID, req.SubjectID, req.ChapterID)
+	var ftsItems []sqlite.RAGDocument
+	var err error
+	if req.UserID > 0 {
+		ftsItems, err = s.repo.SearchFTSForUser(ctx, req.Query, s.cfg.RAG.FTSTopK, req.BankID, req.SubjectID, req.ChapterID, req.UserID)
+	} else {
+		ftsItems, err = s.repo.SearchFTS(ctx, req.Query, s.cfg.RAG.FTSTopK, req.BankID, req.SubjectID, req.ChapterID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +69,12 @@ func (s *RAGService) Search(ctx context.Context, req SearchRequest) (*SearchResu
 	vectorItems := []sqlite.RAGDocument{}
 	if req.UseVector {
 		if vec, err := s.embedder.EmbedText(ctx, req.Query); err == nil && vec != nil {
-			items, err := s.repo.SearchVector(ctx, vec, s.cfg.RAG.VectorTopK, req.BankID, req.SubjectID, req.ChapterID)
+			var items []sqlite.RAGDocument
+			if req.UserID > 0 {
+				items, err = s.repo.SearchVectorForUser(ctx, vec, s.cfg.RAG.VectorTopK, req.BankID, req.SubjectID, req.ChapterID, req.UserID)
+			} else {
+				items, err = s.repo.SearchVector(ctx, vec, s.cfg.RAG.VectorTopK, req.BankID, req.SubjectID, req.ChapterID)
+			}
 			if err == nil {
 				vectorItems = items
 			}

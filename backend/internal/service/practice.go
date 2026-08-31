@@ -63,7 +63,7 @@ func (s *PracticeService) CreateSession(ctx context.Context, userID int64, req C
 	if err := validatePracticeRequest(req); err != nil {
 		return nil, err
 	}
-	bankIDs, err := s.normalizeAndValidateBanks(ctx, req)
+	bankIDs, err := s.normalizeAndValidateBanks(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (s *PracticeService) selectQuestionIDs(ctx context.Context, userID int64, r
 	if err := validatePracticeRequest(req); err != nil {
 		return nil, err
 	}
-	bankIDs, err := s.normalizeAndValidateBanks(ctx, req)
+	bankIDs, err := s.normalizeAndValidateBanks(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (s *PracticeService) selectQuestionIDs(ctx context.Context, userID int64, r
 			wrongStatus = "learning"
 		}
 		wrongFilter := sqlite.WrongFilter{
-			UserID: userID, BankIDs: bankIDs, SubjectID: req.SubjectID, ChapterID: req.ChapterID,
+			UserID: userID, BankOwnerID: userID, BankIDs: bankIDs, SubjectID: req.SubjectID, ChapterID: req.ChapterID,
 			Type: req.Type, Status: wrongStatus, DueOnly: mode == "due",
 			SortByPriority: mode == "wrong", SortByDue: mode == "due",
 			RequireAnswer: true, RequireOptions: true,
@@ -179,7 +179,7 @@ func (s *PracticeService) selectQuestionIDs(ctx context.Context, userID int64, r
 	return questionIDs, nil
 }
 
-func (s *PracticeService) normalizeAndValidateBanks(ctx context.Context, req CreateSessionRequest) ([]int64, error) {
+func (s *PracticeService) normalizeAndValidateBanks(ctx context.Context, userID int64, req CreateSessionRequest) ([]int64, error) {
 	ids := append([]int64(nil), req.BankIDs...)
 	if len(ids) == 0 && req.BankID != nil {
 		ids = append(ids, *req.BankID)
@@ -193,7 +193,7 @@ func (s *PracticeService) normalizeAndValidateBanks(ctx context.Context, req Cre
 		if _, ok := seen[id]; ok {
 			continue
 		}
-		bank, err := s.repo.GetBank(ctx, id)
+		bank, err := s.repo.GetBankForUser(ctx, id, userID)
 		if err != nil || bank.Status != "active" {
 			return nil, api.InvalidRequest("题库不存在或已停用")
 		}
@@ -320,6 +320,9 @@ func (s *PracticeService) Answer(ctx context.Context, userID int64, sessionID *i
 	if err != nil {
 		return nil, api.NotFound("题目不存在")
 	}
+	if _, err := s.repo.GetBankForUser(ctx, q.BankID, userID); err != nil {
+		return nil, api.NotFound("题目不存在")
+	}
 	if !isPracticeQuestionUsable(q) {
 		return nil, api.Conflict("当前题目缺少答案或选项，无法作答")
 	}
@@ -427,6 +430,9 @@ func (s *PracticeService) GetCurrentQuestion(ctx context.Context, userID, sessio
 	for session.Status == "active" && session.CurrentIndex < len(session.QuestionIDs) {
 		q, err := s.repo.GetQuestion(ctx, session.QuestionIDs[session.CurrentIndex])
 		if err != nil {
+			return nil, session, api.NotFound("题目不存在")
+		}
+		if _, err := s.repo.GetBankForUser(ctx, q.BankID, userID); err != nil {
 			return nil, session, api.NotFound("题目不存在")
 		}
 		if !isPracticeQuestionUsable(q) {

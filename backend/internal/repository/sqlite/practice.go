@@ -244,6 +244,10 @@ func (r *Repository) RemoveWrongQuestion(ctx context.Context, userID, questionID
 func (r *Repository) ListWrongQuestions(ctx context.Context, f WrongFilter) ([]*domain.WrongQuestion, int64, error) {
 	where := []string{"w.user_id = ?"}
 	args := []interface{}{f.UserID}
+	if f.BankOwnerID > 0 {
+		where = append(where, "EXISTS (SELECT 1 FROM question_banks owner_bank WHERE owner_bank.id = q.bank_id AND owner_bank.created_by = ?)")
+		args = append(args, f.BankOwnerID)
+	}
 	if f.SubjectID != nil {
 		where = append(where, "q.subject_id = ?")
 		args = append(args, *f.SubjectID)
@@ -335,6 +339,10 @@ func (r *Repository) ListWrongQuestions(ctx context.Context, f WrongFilter) ([]*
 func (r *Repository) ListWrongQuestionIDs(ctx context.Context, f WrongFilter) ([]int64, error) {
 	where := []string{"w.user_id = ?"}
 	args := []interface{}{f.UserID}
+	if f.BankOwnerID > 0 {
+		where = append(where, "EXISTS (SELECT 1 FROM question_banks owner_bank WHERE owner_bank.id = q.bank_id AND owner_bank.created_by = ?)")
+		args = append(args, f.BankOwnerID)
+	}
 	if len(f.BankIDs) > 0 {
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(f.BankIDs)), ",")
 		where = append(where, "q.bank_id IN ("+placeholders+")")
@@ -416,6 +424,7 @@ func scanWrongQuestion(row interface{ Scan(...any) error }) (*domain.WrongQuesti
 // WrongFilter 错题筛选。
 type WrongFilter struct {
 	UserID         int64
+	BankOwnerID    int64 // 仅返回指定用户创建的题库中的错题
 	BankIDs        []int64
 	SubjectID      *int64
 	ChapterID      *int64

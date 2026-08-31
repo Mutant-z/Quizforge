@@ -15,19 +15,19 @@ import (
 
 // RAGDocument 检索结果。
 type RAGDocument struct {
-	ID           int64   `json:"id"`
-	SourceType   string  `json:"source_type"`
-	QuestionID   int64   `json:"question_id,omitempty"`
-	DocumentID   int64   `json:"document_id,omitempty"`
-	DocumentPage int     `json:"document_page,omitempty"`
-	BankID       int64   `json:"bank_id,omitempty"`
-	SubjectID    int64   `json:"subject_id,omitempty"`
-	ChapterID    int64   `json:"chapter_id,omitempty"`
-	KnowledgePoint string `json:"knowledge_point,omitempty"`
-	QuestionType string  `json:"question_type,omitempty"`
-	Difficulty   float64 `json:"difficulty,omitempty"`
-	Content      string  `json:"content"`
-	Score        float64 `json:"score"`
+	ID             int64   `json:"id"`
+	SourceType     string  `json:"source_type"`
+	QuestionID     int64   `json:"question_id,omitempty"`
+	DocumentID     int64   `json:"document_id,omitempty"`
+	DocumentPage   int     `json:"document_page,omitempty"`
+	BankID         int64   `json:"bank_id,omitempty"`
+	SubjectID      int64   `json:"subject_id,omitempty"`
+	ChapterID      int64   `json:"chapter_id,omitempty"`
+	KnowledgePoint string  `json:"knowledge_point,omitempty"`
+	QuestionType   string  `json:"question_type,omitempty"`
+	Difficulty     float64 `json:"difficulty,omitempty"`
+	Content        string  `json:"content"`
+	Score          float64 `json:"score"`
 }
 
 // UpsertRAGDocument 写入 RAG 文档（内容 hash 去重，幂等）。
@@ -116,11 +116,27 @@ func contentHash(content string) string {
 
 // SearchFTS 关键词检索（FTS5 + BM25）。
 func (r *Repository) SearchFTS(ctx context.Context, query string, topK int, bankID, subjectID, chapterID *int64) ([]RAGDocument, error) {
+	return r.searchFTS(ctx, query, topK, bankID, subjectID, chapterID, 0)
+}
+
+// SearchFTSForUser 将检索结果限制在用户自己创建的题库内。
+func (r *Repository) SearchFTSForUser(ctx context.Context, query string, topK int, bankID, subjectID, chapterID *int64, userID int64) ([]RAGDocument, error) {
+	return r.searchFTS(ctx, query, topK, bankID, subjectID, chapterID, userID)
+}
+
+func (r *Repository) searchFTS(ctx context.Context, query string, topK int, bankID, subjectID, chapterID *int64, ownerID int64) ([]RAGDocument, error) {
 	if topK <= 0 {
 		topK = 20
 	}
 	where := []string{"rag_fts MATCH ?"}
 	args := []interface{}{query}
+	if ownerID > 0 {
+		where = append(where, `EXISTS (
+			SELECT 1 FROM question_banks owner_bank
+			WHERE CAST(owner_bank.id AS TEXT) = rag_fts.bank_id AND owner_bank.created_by = ?
+		)`)
+		args = append(args, ownerID)
+	}
 	if bankID != nil {
 		where = append(where, "rag_fts.bank_id = ?")
 		args = append(args, fmt.Sprintf("%d", *bankID))
@@ -175,11 +191,27 @@ func (r *Repository) GetRAGDocumentByQuestion(ctx context.Context, questionID in
 
 // SearchVector 向量相似度检索（线性扫描，万级数据量可接受）。
 func (r *Repository) SearchVector(ctx context.Context, query []float32, topK int, bankID, subjectID, chapterID *int64) ([]RAGDocument, error) {
+	return r.searchVector(ctx, query, topK, bankID, subjectID, chapterID, 0)
+}
+
+// SearchVectorForUser 将检索结果限制在用户自己创建的题库内。
+func (r *Repository) SearchVectorForUser(ctx context.Context, query []float32, topK int, bankID, subjectID, chapterID *int64, userID int64) ([]RAGDocument, error) {
+	return r.searchVector(ctx, query, topK, bankID, subjectID, chapterID, userID)
+}
+
+func (r *Repository) searchVector(ctx context.Context, query []float32, topK int, bankID, subjectID, chapterID *int64, ownerID int64) ([]RAGDocument, error) {
 	if topK <= 0 {
 		topK = 20
 	}
 	where := []string{"e.vector IS NOT NULL", "d.stale = 0"}
 	args := []interface{}{}
+	if ownerID > 0 {
+		where = append(where, `EXISTS (
+			SELECT 1 FROM question_banks owner_bank
+			WHERE owner_bank.id = d.bank_id AND owner_bank.created_by = ?
+		)`)
+		args = append(args, ownerID)
+	}
 	if bankID != nil {
 		where = append(where, "d.bank_id = ?")
 		args = append(args, *bankID)
@@ -205,8 +237,8 @@ func (r *Repository) SearchVector(ctx context.Context, query []float32, topK int
 	defer rows.Close()
 
 	type cand struct {
-		doc  RAGDocument
-		sim  float64
+		doc RAGDocument
+		sim float64
 	}
 	results := []cand{}
 	for rows.Next() {

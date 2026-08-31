@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import client from '@/api/client'
+import client, { authFetch, responseErrorMessage } from '@/api/client'
 import { Badge, Spinner } from '@/components/ui'
 import {
   Bot,
@@ -103,6 +103,96 @@ export function MobileAiSheet({
     }
   }, [messages, busy])
 
+  function handleEvent(data: {
+    type: string
+    message?: string
+    data?: { delta?: string; done?: boolean; name?: string; result?: string; step_id?: string }
+  }) {
+    switch (data.type) {
+      case 'tool.started': {
+        const step: ToolStep = {
+          id: data.data?.step_id ?? `tool-${Date.now()}`,
+          name: data.data?.name ?? '知识库检索',
+          status: 'running',
+          message: data.message ?? '正在调用工具...',
+        }
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = { ...last, toolSteps: [...(last.toolSteps ?? []), step] }
+          }
+          return next
+        })
+        break
+      }
+      case 'tool.completed':
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last.toolSteps?.length) {
+            const steps = [...last.toolSteps]
+            let index = -1
+            for (let i = steps.length - 1; i >= 0; i -= 1) {
+              if (steps[i].status === 'running') {
+                index = i
+                break
+              }
+            }
+            if (index >= 0) {
+              steps[index] = {
+                ...steps[index],
+                status: 'completed',
+                message: data.message ?? '执行完成',
+                result: data.data?.result,
+              }
+              next[next.length - 1] = { ...last, toolSteps: steps }
+            }
+          }
+          return next
+        })
+        break
+      case 'agent.streaming':
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          const delta = data.data?.delta ?? ''
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = {
+              ...last,
+              content: last.content + delta,
+              streaming: data.data?.done ? false : last.streaming,
+            }
+          } else if (delta) {
+            next.push({ role: 'assistant', content: delta, streaming: !data.data?.done, toolSteps: [] })
+          }
+          return next
+        })
+        break
+      case 'agent.failed':
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = { ...last, streaming: false }
+          }
+          next.push({ role: 'status', content: data.message ?? 'AI 处理遇到问题，请重试。' })
+          return next
+        })
+        break
+      case 'agent.completed':
+        setMessages((prev) => {
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = { ...last, streaming: false }
+          }
+          return next
+        })
+        break
+    }
+  }
+
   const send = async (textToSend?: string) => {
     const query = (textToSend || input).trim()
     if (!query || busy || !sessionId) return
@@ -111,16 +201,14 @@ export function MobileAiSheet({
     setMessages((prev) => [...prev, { role: 'user', content: query }])
     setBusy(true)
 
-    const token = localStorage.getItem('qt_access_token')
     const abort = new AbortController()
     abortControllerRef.current = abort
 
     try {
-      const resp = await fetch(`/api/v1/agent/sessions/${sessionId}/chat`, {
+      const resp = await authFetch(`/api/v1/agent/sessions/${sessionId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           message: query,
@@ -136,73 +224,31 @@ export function MobileAiSheet({
       })
 
       if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}`)
+        throw new Error(await responseErrorMessage(resp, 'AI 消息发送失败'))
       }
 
       setMessages((prev) => [...prev, { role: 'assistant', content: '', toolSteps: [], streaming: true }])
 
       const reader = resp.body?.getReader()
+      if (!reader) throw new Error('AI 流式响应为空，请检查局域网代理配置')
       const decoder = new TextDecoder()
-      let accumulated = ''
-      const currentTools: ToolStep[] = []
+      let buffer = ''
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value, { stream: true })
-          const lines = chunk.split('\n')
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.slice(6).trim()
-              if (dataStr === '[DONE]') continue
-              try {
-                const parsed = JSON.parse(dataStr)
-                if (parsed.type === 'delta' || parsed.type === 'content') {
-                  accumulated += parsed.content || ''
-                  setMessages((prev) => {
-                    const next = [...prev]
-                    const last = next[next.length - 1]
-                    if (last && last.role === 'assistant') {
-                      last.content = accumulated
-                    }
-                    return next
-                  })
-                } else if (parsed.type === 'tool_start') {
-                  currentTools.push({
-                    id: parsed.id || String(Date.now()),
-                    name: parsed.name || '工具调用',
-                    status: 'running',
-                    message: parsed.message,
-                  })
-                  setMessages((prev) => {
-                    const next = [...prev]
-                    const last = next[next.length - 1]
-                    if (last && last.role === 'assistant') {
-                      last.toolSteps = [...currentTools]
-                    }
-                    return next
-                  })
-                } else if (parsed.type === 'tool_end') {
-                  const step = currentTools.find((s) => s.id === parsed.id || s.name === parsed.name)
-                  if (step) {
-                    step.status = parsed.status === 'error' ? 'failed' : 'completed'
-                    step.result = parsed.result
-                  }
-                  setMessages((prev) => {
-                    const next = [...prev]
-                    const last = next[next.length - 1]
-                    if (last && last.role === 'assistant') {
-                      last.toolSteps = [...currentTools]
-                    }
-                    return next
-                  })
-                }
-              } catch {
-                // partial json line
-              }
-            }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() ?? ''
+        for (const event of events) {
+          const dataLine = event.split('\n').find((line) => line.startsWith('data:'))
+          if (!dataLine) continue
+          const dataStr = dataLine.slice(5).trim()
+          if (!dataStr || dataStr === '[DONE]') continue
+          try {
+            handleEvent(JSON.parse(dataStr))
+          } catch {
+            // Ignore malformed events; the final status event still closes the message.
           }
         }
       }

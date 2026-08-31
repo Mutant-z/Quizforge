@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -132,14 +136,41 @@ func (h *ProviderHandler) Delete(c *gin.Context) {
 	api.OK(c, gin.H{"deleted": true})
 }
 
-// Test 测试模型连通性（按 provider_type 分别测试 LLM, Embedding, Rerank）。
+// TestStored 测试已经保存的 Provider。
+// API Key 由服务端按当前用户从数据库解密，客户端不需要、也不应该再次提交密钥。
+func (h *ProviderHandler) TestStored(c *gin.Context) {
+	id := parseID(c.Param("id"))
+	if id <= 0 {
+		api.Fail(c, http.StatusBadRequest, api.ErrInvalidRequest, "Provider ID 不合法")
+		return
+	}
+	resolved, err := h.registry.Resolve(c.Request.Context(), id)
+	if err != nil {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "Provider 不存在或无权访问")
+		return
+	}
+	h.testConfig(c, saveProviderRequest{
+		Type:           resolved.Type,
+		Name:           resolved.Name,
+		Protocol:       resolved.Protocol,
+		BaseURL:        resolved.BaseURL,
+		APIKey:         resolved.APIKey,
+		ModelName:      resolved.ModelName,
+		SupportsVision: resolved.SupportsVision,
+	})
+}
+
+// Test 测试未保存的模型配置（按 provider_type 分别测试 LLM, Embedding, Rerank）。
 func (h *ProviderHandler) Test(c *gin.Context) {
 	var req saveProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		api.Fail(c, http.StatusBadRequest, api.ErrInvalidRequest, "参数不合法")
 		return
 	}
+	h.testConfig(c, req)
+}
 
+func (h *ProviderHandler) testConfig(c *gin.Context, req saveProviderRequest) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
@@ -213,12 +244,17 @@ func (h *ProviderHandler) Test(c *gin.Context) {
 			return
 		}
 		message := provider.ChatMessage{Role: "user", Content: "回复 OK"}
-		jsonMode := false
 		if req.SupportsVision {
 			message = visionProbeMessage()
-			jsonMode = true
 		}
-		resp, err := llm.Chat(ctx, provider.ChatRequest{Messages: []provider.ChatMessage{message}, MaxTokens: 40, JSONMode: jsonMode})
+		probeTokens := 40
+		if req.SupportsVision {
+			// Vision preflight only checks whether the provider accepts an image.
+			// Do not require a tiny JSON response: thinking-enabled models can
+			// spend the budget on reasoning and return a truncated JSON payload.
+			probeTokens = 128
+		}
+		resp, err := llm.Chat(ctx, provider.ChatRequest{Messages: []provider.ChatMessage{message}, MaxTokens: probeTokens, DisableThinking: req.SupportsVision})
 		latency := time.Since(start).Milliseconds()
 		if err != nil {
 			api.FailDetail(c, http.StatusBadGateway, api.ErrModelError, "LLM 连接失败", err.Error())
@@ -239,10 +275,17 @@ func (h *ProviderHandler) Test(c *gin.Context) {
 }
 
 func visionProbeMessage() provider.ChatMessage {
-	// A complete 1x1 PNG. This verifies image transport rather than trusting a
-	// model-name capability table.
-	png := []byte{137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 240, 31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130}
-	return provider.ChatMessage{Role: "user", Content: "确认你能读取所附图片。只返回 JSON：{\"ok\":true}", Parts: []provider.ContentPart{{Type: "image", MIMEType: "image/png", Data: png, Detail: "low"}}}
+	// Encode the probe image with the standard library instead of keeping a
+	// hand-written byte slice. Some vision gateways validate the PNG chunks and
+	// reject otherwise plausible but malformed tiny images.
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	img.Set(1, 0, color.RGBA{G: 255, A: 255})
+	img.Set(0, 1, color.RGBA{B: 255, A: 255})
+	img.Set(1, 1, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	var encoded bytes.Buffer
+	_ = png.Encode(&encoded, img)
+	return provider.ChatMessage{Role: "user", Content: "请读取所附图片，并仅回复 OK。", Parts: []provider.ContentPart{{Type: "image", MIMEType: "image/png", Data: encoded.Bytes(), Detail: "low"}}}
 }
 
 func probeVision(parent context.Context, req saveProviderRequest) (provider.ChatResponse, error) {
@@ -258,15 +301,12 @@ func probeVision(parent context.Context, req saveProviderRequest) (provider.Chat
 func probeVisionLLM(parent context.Context, llm provider.LLMProvider) (provider.ChatResponse, error) {
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
-	resp, err := llm.Chat(ctx, provider.ChatRequest{Messages: []provider.ChatMessage{visionProbeMessage()}, MaxTokens: 40, JSONMode: true})
+	resp, err := llm.Chat(ctx, provider.ChatRequest{Messages: []provider.ChatMessage{visionProbeMessage()}, MaxTokens: 128, DisableThinking: true})
 	if err != nil {
 		return provider.ChatResponse{}, err
 	}
-	var result struct {
-		OK bool `json:"ok"`
-	}
-	if json.Unmarshal([]byte(resp.Content), &result) != nil || !result.OK {
-		return provider.ChatResponse{}, fmt.Errorf("模型未返回预期的视觉 JSON 响应")
+	if strings.TrimSpace(resp.Content) == "" {
+		return provider.ChatResponse{}, fmt.Errorf("模型未返回视觉探测响应")
 	}
 	return resp, nil
 }

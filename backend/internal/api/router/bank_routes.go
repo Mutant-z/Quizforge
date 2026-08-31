@@ -23,23 +23,7 @@ func registerBankRoutes(g *gin.RouterGroup, deps *Deps, cfg *config.Config) {
 	banks.DELETE("/:id", h.Delete)
 	banks.GET("/:id/subjects", h.ListSubjects)
 	banks.POST("/:id/subjects", h.CreateSubject)
-	banks.GET("/:id/chapters", func(c *gin.Context) {
-		// 通过 subject_id 查章节（与 /subjects/:subject_id/chapters 等价）
-		subjectID := parseParamID(c.Param("id"))
-		// id 是 bank id，需要先取 subjects
-		subjects, err := repo.ListSubjects(c.Request.Context(), subjectID)
-		if err != nil || len(subjects) == 0 {
-			handler.RespondJSON(c, gin.H{"data": []interface{}{}})
-			return
-		}
-		first := subjects[0].ID
-		tree, err := repo.ChapterTree(c.Request.Context(), first)
-		if err != nil {
-			handler.RespondJSON(c, gin.H{"data": []interface{}{}})
-			return
-		}
-		handler.RespondJSON(c, tree)
-	})
+	banks.GET("/:id/chapters", h.ListBankChapters)
 
 	subjects := g.Group("/subjects", middleware.Auth(deps.Token))
 	subjects.GET("/:subject_id", h.GetSubject)

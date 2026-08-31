@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import client from '@/api/client'
+import client, { authFetch, responseErrorMessage } from '@/api/client'
 import { Badge, Button, IconButton, Spinner } from '@/components/ui'
 import {
   Bot,
@@ -139,18 +139,21 @@ export default function AiSidebar({
     abortControllerRef.current = abortController
 
     try {
-      const resp = await fetch(`/api/v1/agent/sessions/${sessionId}/messages`, {
+      const resp = await authFetch(`/api/v1/agent/sessions/${sessionId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('qt_access_token')}`,
         },
         body: JSON.stringify({ message: content }),
         signal: abortController.signal,
       })
 
+      if (!resp.ok) {
+        throw new Error(await responseErrorMessage(resp, 'AI 消息发送失败'))
+      }
+
       const reader = resp.body?.getReader()
-      if (!reader) throw new Error('no stream')
+      if (!reader) throw new Error('AI 流式响应为空，请检查局域网代理配置')
 
       const decoder = new TextDecoder()
       let buffer = ''
@@ -186,7 +189,7 @@ export default function AiSidebar({
       if ((err as Error)?.name !== 'AbortError') {
         setMessages((prev) => [
           ...prev,
-          { role: 'status', content: '与 AI 服务连接中断，请检查网络或模型配置后重试。' },
+          { role: 'status', content: err instanceof Error ? err.message : '与 AI 服务连接中断，请检查网络或模型配置后重试。' },
         ])
       }
     } finally {

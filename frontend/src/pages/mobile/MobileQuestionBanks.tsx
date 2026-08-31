@@ -25,7 +25,6 @@ export default function MobileQuestionBanks() {
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [desc, setDesc] = useState('')
-  const [visibility, setVisibility] = useState<'public' | 'private'>('private')
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<QuestionBank | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -50,11 +49,10 @@ export default function MobileQuestionBanks() {
     if (!name.trim()) return
     setCreating(true)
     try {
-      await client.post('/question-banks', { name, description: desc, visibility })
+      await client.post('/question-banks', { name, description: desc, visibility: 'private' })
       showToast('题库创建成功', 'success')
       setName('')
       setDesc('')
-      setVisibility('private')
       setCreateOpen(false)
       load()
     } catch (err) {
@@ -168,8 +166,8 @@ export default function MobileQuestionBanks() {
                   <span>·</span>
                   <span>{b.subject_count ?? 0} 科目</span>
                   <span>·</span>
-                  <Badge tone={b.visibility === 'public' ? 'info' : 'neutral'} variant="subtle" className="text-[9px] py-0 px-1.5 font-sans">
-                    {b.visibility === 'public' ? '公开' : '私有'}
+                  <Badge tone="neutral" variant="subtle" className="text-[9px] py-0 px-1.5 font-sans">
+                    仅自己可见
                   </Badge>
                 </div>
 
@@ -229,32 +227,8 @@ export default function MobileQuestionBanks() {
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-foreground block">公开权限</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setVisibility('private')}
-                className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
-                  visibility === 'private'
-                    ? 'border-primary bg-primary/10 text-primary shadow-subtle'
-                    : 'border-border bg-surface text-muted-foreground'
-                }`}
-              >
-                私有题库 (仅自己可见)
-              </button>
-              <button
-                type="button"
-                onClick={() => setVisibility('public')}
-                className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
-                  visibility === 'public'
-                    ? 'border-primary bg-primary/10 text-primary shadow-subtle'
-                    : 'border-border bg-surface text-muted-foreground'
-                }`}
-              >
-                公开题库 (全站可见)
-              </button>
-            </div>
+          <div className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            这是你的个人题库空间，仅你自己可以查看和刷题。
           </div>
 
           <div className="pt-2 flex items-center gap-2">

@@ -37,6 +37,8 @@ type ChatRequest struct {
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	// JSONMode 请求结构化输出
 	JSONMode bool `json:"-"`
+	// DisableThinking 用于短响应探测，当前仅对 DeepSeek V4 发送兼容参数。
+	DisableThinking bool `json:"-"`
 }
 
 // ChatResponse 响应。
@@ -161,6 +163,9 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (ChatRespons
 	if req.JSONMode {
 		body["response_format"] = map[string]string{"type": "json_object"}
 	}
+	if req.DisableThinking && isDeepSeekV4Model(req.Model) {
+		body["thinking"] = map[string]string{"type": "disabled"}
+	}
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return ChatResponse{}, err
@@ -225,6 +230,9 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 	if req.JSONMode {
 		body["response_format"] = map[string]string{"type": "json_object"}
 	}
+	if req.DisableThinking && isDeepSeekV4Model(req.Model) {
+		body["thinking"] = map[string]string{"type": "disabled"}
+	}
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -286,6 +294,10 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 		}
 	}()
 	return ch, nil
+}
+
+func isDeepSeekV4Model(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "deepseek-v4")
 }
 
 func truncate(s string, n int) string {

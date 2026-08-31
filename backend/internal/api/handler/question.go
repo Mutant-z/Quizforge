@@ -22,10 +22,22 @@ func NewQuestionHandler(repo *sqlite.Repository, svc *service.QuestionService) *
 	return &QuestionHandler{repo: repo, svc: svc}
 }
 
+func (h *QuestionHandler) accessibleQuestion(c *gin.Context, q *domain.Question) bool {
+	if isAdmin(c) {
+		return true
+	}
+	_, err := h.repo.GetBankForUser(c.Request.Context(), q.BankID, middleware.CurrentUserID(c))
+	return err == nil
+}
+
 func (h *QuestionHandler) Get(c *gin.Context) {
 	id := parseID(c.Param("id"))
 	q, err := h.repo.GetQuestion(c.Request.Context(), id)
 	if err != nil {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
+		return
+	}
+	if !h.accessibleQuestion(c, q) {
 		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
 		return
 	}
@@ -43,6 +55,9 @@ func (h *QuestionHandler) Update(c *gin.Context) {
 	}
 
 	bank, err := h.repo.GetBank(c.Request.Context(), existing.BankID)
+	if role, _ := c.Get("role"); role != "admin" {
+		bank, err = h.repo.GetBankForUser(c.Request.Context(), existing.BankID, middleware.CurrentUserID(c))
+	}
 	if err != nil {
 		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题库不存在")
 		return
@@ -87,6 +102,9 @@ func (h *QuestionHandler) Search(c *gin.Context) {
 		Page:     page,
 		PageSize: pageSize,
 	}
+	if !isAdmin(c) {
+		filter.BankOwnerID = middleware.CurrentUserID(c)
+	}
 	if bankID := c.Query("bank_id"); bankID != "" {
 		id := parseID(bankID)
 		filter.BankID = &id
@@ -113,11 +131,15 @@ func (h *QuestionHandler) Search(c *gin.Context) {
 func (h *QuestionHandler) ToggleFavorite(c *gin.Context) {
 	id := parseID(c.Param("id"))
 	uid := middleware.CurrentUserID(c)
+	question, err := h.repo.GetQuestion(c.Request.Context(), id)
+	if err != nil || !h.accessibleQuestion(c, question) {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
+		return
+	}
 	var req struct {
 		Favorite *bool `json:"favorite"`
 	}
 	_ = c.ShouldBindJSON(&req)
-	var err error
 	if req.Favorite != nil && !*req.Favorite {
 		err = h.repo.RemoveFavorite(c.Request.Context(), uid, id)
 	} else {
@@ -135,6 +157,11 @@ func (h *QuestionHandler) ToggleFavorite(c *gin.Context) {
 func (h *QuestionHandler) GetNote(c *gin.Context) {
 	id := parseID(c.Param("id"))
 	uid := middleware.CurrentUserID(c)
+	question, err := h.repo.GetQuestion(c.Request.Context(), id)
+	if err != nil || !h.accessibleQuestion(c, question) {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
+		return
+	}
 	note, err := h.repo.GetNote(c.Request.Context(), uid, id)
 	if err != nil {
 		api.OK(c, gin.H{"content": "", "question_id": id})
@@ -146,6 +173,11 @@ func (h *QuestionHandler) GetNote(c *gin.Context) {
 func (h *QuestionHandler) PutNote(c *gin.Context) {
 	id := parseID(c.Param("id"))
 	uid := middleware.CurrentUserID(c)
+	question, err := h.repo.GetQuestion(c.Request.Context(), id)
+	if err != nil || !h.accessibleQuestion(c, question) {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
+		return
+	}
 	var req struct {
 		Content string `json:"content"`
 	}
@@ -164,6 +196,11 @@ func (h *QuestionHandler) PutNote(c *gin.Context) {
 func (h *QuestionHandler) DeleteNote(c *gin.Context) {
 	id := parseID(c.Param("id"))
 	uid := middleware.CurrentUserID(c)
+	question, err := h.repo.GetQuestion(c.Request.Context(), id)
+	if err != nil || !h.accessibleQuestion(c, question) {
+		api.Fail(c, http.StatusNotFound, api.ErrNotFound, "题目不存在")
+		return
+	}
 	if err := h.repo.DeleteNote(c.Request.Context(), uid, id); err != nil {
 		api.Fail(c, http.StatusInternalServerError, api.ErrInternal, "删除笔记失败")
 		return
