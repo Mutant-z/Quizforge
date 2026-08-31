@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e1b4b" />
+    </linearGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+    <radialGradient id="sparkGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="30%" stop-color="#38bdf8" stop-opacity="0.9" />
+      <stop offset="70%" stop-color="#6366f1" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Squircle -->
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#bgGrad)" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.3" />
+  
+  <!-- Outer Glow Ring (Letter Q loop) -->
+  <circle cx="60" cy="58" r="32" stroke="url(#ringGrad)" stroke-width="8" stroke-linecap="round" filter="url(#neonGlow)" />
+  
+  <!-- Inner Circuit Ring -->
+  <circle cx="60" cy="58" r="22" stroke="#38bdf8" stroke-width="2" stroke-dasharray="4 3" opacity="0.7" />
+
+  <!-- Q Tail -->
+  <path d="M78 76 L96 94" stroke="url(#ringGrad)" stroke-width="8" stroke-linecap="round" filter="url(#neonGlow)" />
+
+  <!-- Central Intelligence / Knowledge Spark -->
+  <circle cx="60" cy="58" r="16" fill="url(#sparkGlow)" />
+  
+  <!-- 8-Point Star Spark -->
+  <path d="M60 42 L63 55 L76 58 L63 61 L60 74 L57 61 L44 58 L57 55 Z" fill="#ffffff" filter="url(#neonGlow)" />
+
+  <!-- Neural Nodes -->
+  <circle cx="28" cy="46" r="2.5" fill="#38bdf8" opacity="0.8" />
+  <path d="M30 47 Q42 50 50 55" stroke="#38bdf8" stroke-width="1.5" opacity="0.4" fill="none" />
+  
+  <circle cx="98" cy="38" r="2.5" fill="#a855f7" opacity="0.8" />
+  <path d="M96 40 Q82 46 72 52" stroke="#a855f7" stroke-width="1.5" opacity="0.4" fill="none" />
+</svg>

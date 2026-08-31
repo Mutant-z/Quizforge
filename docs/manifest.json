@@ -1,0 +1,38 @@
+{
+  "name": "AI Question Bank + RAG System Documentation",
+  "language": "zh-CN",
+  "format": "Markdown",
+  "documents": [
+    "01-background-and-product-positioning.md",
+    "02-functional-requirements.md",
+    "03-system-architecture.md",
+    "04-ai-question-bank-engine.md",
+    "05-pdf-ingestion-pipeline.md",
+    "06-multi-agent-design.md",
+    "07-rag-design.md",
+    "08-review-and-wrong-book.md",
+    "09-database-design.md",
+    "10-api-design.md",
+    "11-backend-design.md",
+    "12-frontend-design.md",
+    "13-development-standards.md",
+    "14-security-and-model-provider.md",
+    "15-deployment-and-operations.md",
+    "16-testing-and-quality.md",
+    "17-roadmap-and-todolist.md",
+    "README.md",
+    "appendix/example-config.md",
+    "appendix/example-json-schema.md",
+    "appendix/terminology.md"
+  ],
+  "architecture": {
+    "frontend": "React + TypeScript + Vite",
+    "backend": "Go + Gin",
+    "database": "SQLite + FTS5 + sqlite-vec",
+    "desktop": "Tauri 2",
+    "ai_protocols": [
+      "OpenAI Compatible",
+      "Anthropic Compatible"
+    ]
+  }
+}
